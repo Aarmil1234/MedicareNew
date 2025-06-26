@@ -1344,13 +1344,20 @@ const getAppointmentsWithDetails = async (req, res) => {
                     outTime: 1,
                     disease: 1,
                     isEmergency: 1,
-                    chiefComplaints: 1,
-                    probableDiagnosis: 1,
-                    prescriptionList: 1,
-                    labInvestigations: 1,
-                    labReports: 1,
-                    doctorRemarks: 1,
-                    nextAppointmentDate: 1,
+                    // chiefComplaints: 1,
+                    // probableDiagnosis: 1,
+                    // prescriptionList: 1,
+                    // labInvestigations: 1,
+                    // labReports: 1,
+                    // doctorRemarks: 1,
+                    // nextAppointmentDate: 1,
+                    chiefComplaints: { $ifNull: ["$chiefComplaints", ""] },
+                    probableDiagnosis: { $ifNull: ["$probableDiagnosis", ""] },
+                    prescriptionList: { $ifNull: ["$prescriptionList", ""] },
+                    labInvestigations: { $ifNull: ["$labInvestigations", ""] },
+                    labReports: { $ifNull: ["$labReports", ""] },
+                    doctorRemarks: { $ifNull: ["$doctorRemarks", ""] },
+                    nextAppointmentDate: { $ifNull: ["$nextAppointmentDate", ""] },
                     status: 1,
                     delete: 1,
                     appointmentData: 1
@@ -1711,13 +1718,15 @@ const editAppointmentDetailsV2 = async (req, res) => {
             probableDiagnosis,
             prescriptionList,
             labInvestigations,
-            labReports,
+            // labReports,
             doctorRemarks,
             nextAppointmentDate
 
         } = req.body;
 
-        const labReportFile = req.file || null;
+        const labReportFile = req.files?.labReportFile?.[0] || null;
+        // console.log("labReportFile", labReportFile);
+
 
         if (!appointmentId) {
             return res.status(400).json({
@@ -1735,9 +1744,9 @@ const editAppointmentDetailsV2 = async (req, res) => {
         if (!appointmentDetail) {
             return errorResponse(res, 'Appointment detail not found');
         }
-        // console.log("labReportFile", labReportFile);
+        console.log("labReportFile", labReportFile);
 
-        // Update the record
+        // Update the record 
         const updatedDetail = await appointmentdetailModel.findByIdAndUpdate(
             appointmentDetail._id,
             {
