@@ -154,7 +154,7 @@ const adminProfile = async (req, res) => {
 // add hostpital
 const addHospital = async (req, res) => {
     try {
-        const { ownerName, socialMediaLinks = '', name = '', email, mobileNumber = '', address = '', latitude = '', longitude = '', content = '[]', password = '' } = req.body;
+        const { ownerName, socialMediaLinks = '', name = '', email, mobileNumber = '', address = '', latitude = '', longitude = '', content = '[]', password = '', city, type } = req.body;
         let profile = req.files['profile'] || []
         let images = req.files['images'] || []
         let contentJson = JSON.parse(content) || []
@@ -166,7 +166,7 @@ const addHospital = async (req, res) => {
             return errorResponse(res, 'Hospital with this email already exists');
         }
 
-        const hospitalData = { ownerName, socialMediaLinks, name, email, mobileNumber, address, latitude, longitude, password: md5(password) };
+        const hospitalData = { ownerName, socialMediaLinks, name, email, mobileNumber, address, city, type, latitude, longitude, password: md5(password) };
         if (profile.length != 0) {
             hospitalData['profile'] = `admin/profiles/` + profile[0]['filename']
         }

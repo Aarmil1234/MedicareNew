@@ -10,6 +10,8 @@ const hospitalSchema = new mongoose.Schema({
     password: { type: String, required: false },
     mobileNumber: { type: String, required: false },
     address: { type: String, required: false },
+    city: { type: String, required: false },
+    type: { type: String, required: false },
     latitude: { type: String, required: false },
     longitude: { type: String, required: false },
     profile: { type: String, default:null },
