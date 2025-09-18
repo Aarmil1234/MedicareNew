@@ -8,6 +8,7 @@ const { validate } = require('../../helper/index.js');
 const authenticate = require('../../middleware/auth.js');
 // const authenticate = require('../../middleware/auth.js');
 const { storage } = require('../../helper/cloudnary.js');
+const ipdRoutes = require('../../routes/ipdRoutes.js');
 
 const app = express();
 const router = express.Router();
@@ -35,7 +36,7 @@ const uploadProfile = multer({ storage });
 
 // Apply global middleware
 router.use(express.json()); // Parses JSON requests
-router.use(authenticate); // Global authentication middleware
+// router.use(authenticate); // Global authentication middleware
 
 router.get('/test', adminController.test);
 // Define the register route
@@ -47,6 +48,7 @@ router.post('/adminprofile', adminController.adminProfile);
 router.post('/addhospital', uploadProfile.fields([{ name: 'profile' }, { name: 'images' }]), adminController.addHospital); // corrected the route to lowercase
 router.post('/gethospitals', adminController.getHospitals); // corrected the route to lowercase
 
+router.post('/getSlotsDetails', adminController.getSlotsDetails);
 router.post('/addappointment', adminController.addAppointment);
 router.post('/addappointmentv2', adminController.addAppointmentV2);
 router.post('/deleteappointment', adminController.deleteAppointment);
@@ -70,5 +72,6 @@ router.post('/imageUpload', uploadProfile.fields([{ name: 'images' }]), adminCon
 router.post('/bannerSave', uploadProfile.fields([{ name: 'images' }]), adminController.addEditBanner);
 router.post('/bannerView', adminController.bannerView);
 
+router.use('/ipd', ipdRoutes);
 
 module.exports = router;

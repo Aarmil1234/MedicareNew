@@ -16,8 +16,11 @@ const mediaModel = require('../../model/media');
 const contentModel = require('../../model/content');
 const bannerModel = require('../../model/banner');
 const mongoose = require("mongoose");
+const { shiftAppointments, formatBookingTime, getAppointmentDetails } = require('../../helper/appointmentHelper');
+const { sendWhatsAppMessages } = require('../../helper/whatsappService');
 
 const { successResponse, errorResponse, saveModel, selectdata, selectdatv2, updateModel, selectdatawithjoin } = require('../../helper/index');
+const appointmentdetail = require('../../model/appointmentdetail');
 
 const test = async (req, res) => {
     try {
@@ -154,11 +157,29 @@ const adminProfile = async (req, res) => {
 // add hostpital
 const addHospital = async (req, res) => {
     try {
-        const { ownerName, socialMediaLinks = '', name = '', email, mobileNumber = '', address = '', latitude = '', longitude = '', content = '[]', password = '' } = req.body;
-        let profile = req.files['profile'] || []
-        let images = req.files['images'] || []
-        let contentJson = JSON.parse(content) || []
-        // password = md5(password) || '';
+        const { ownerName, socialMediaLinks = '', name = '', email, mobileNumber = '', address = '', latitude = '', longitude = '', content = '[]', password = '', city = '', state = '', pincode = '' } = req.body;
+
+        // Handle file uploads safely
+        let profile = [];
+        let images = [];
+        let contentJson = [];
+
+        try {
+            if (req.files) {
+                profile = req.files['profile'] ? (Array.isArray(req.files['profile']) ? req.files['profile'] : [req.files['profile']]) : [];
+                images = req.files['images'] ? (Array.isArray(req.files['images']) ? req.files['images'] : [req.files['images']]) : [];
+            }
+
+            if (content) {
+                contentJson = content;
+                if (!Array.isArray(contentJson)) {
+                    contentJson = [];
+                }
+            }
+        } catch (parseError) {
+            console.error('Error parsing content or files:', parseError);
+            return errorResponse(res, 'Error processing request data');
+        }
 
         // Check if a hospital with the same email already exists
         const existingHospital = await hospitalModel.findOne({ email });
@@ -166,7 +187,25 @@ const addHospital = async (req, res) => {
             return errorResponse(res, 'Hospital with this email already exists');
         }
 
-        const hospitalData = { ownerName, socialMediaLinks, name, email, mobileNumber, address, latitude, longitude, password: md5(password) };
+        const hospitalData = {
+            ownerName,
+            socialMediaLinks,
+            name,
+            email,
+            mobileNumber,
+            address,
+            city,
+            state,
+            pincode,
+            latitude,
+            longitude,
+            password: md5(password)
+        };
+
+        // Add profile image URL if available
+        if (profile && profile[0] && profile[0].path) {
+            hospitalData.profile = profile[0].path;
+        }
         if (profile.length != 0) {
             hospitalData['profile'] = `admin/profiles/` + profile[0]['filename']
         }
@@ -194,6 +233,7 @@ const addHospital = async (req, res) => {
         return errorResponse(res, 'Error creating hospital');
     }
 };
+
 
 // imageUpload
 const imageUpload = async (req, res) => {
@@ -243,7 +283,7 @@ const imageUpload = async (req, res) => {
 
 const getHospitals = async (req, res) => {
     try {
-        const { hospitalId, latitude, longitude, distance = 10, limit = 10, offset = 0 } = req.body;
+        const { hospitalId, latitude, longitude, distance = 10, limit = 10, city = '', state = '', offset = 0 } = req.body;
 
         const condition = { delete: false }; // Only active hospitals
 
@@ -288,37 +328,91 @@ const getHospitals = async (req, res) => {
             });
         } else {
             // fallback normal if lat/long not provided
-            const { data: hospitals, totalRecords } = await selectdatawithjoin({
-                Model: hospitalModel,
-                condition,
-                fields: 'ownerName socialMediaLinks name email mobileNumber address profile content',
-                limit: parseInt(limit),
-                offset: parseInt(offset),
-                sortBy: { create: -1 }
-            });
+            // let query = hospitalModel.find(condition)
+            //     .select('ownerName socialMediaLinks name email mobileNumber address profile content city')
+            //     .sort({ create: -1 });
 
-            for (let h = 0; h < hospitals.length; h++) {
+            // // If city is provided, fetch all hospitals and sort by city match
+            // if (city) {
+            // const allHospitals = await query.lean();
 
-                let img = await mediaModel.find({ delete: false, type: 'HOSPITAL', typeId: hospitals[h]['_id'] })
-                hospitals[h]['media'] = img
+            // // Sort hospitals: matching city first, then others
+            // const sortedHospitals = allHospitals.sort((a, b) => {
+            //     const aMatch = a.city?.toLowerCase() === city.toLowerCase();
+            //     const bMatch = b.city?.toLowerCase() === city.toLowerCase();
 
-                let contentArr = await contentModel.find({ delete: false, hospitalId: hospitals[h]['_id'] })
-                hospitals[h]['contentDetails'] = contentArr
-                // console.log("contentArr", contentArr);
+            //     if (aMatch && !bMatch) return -1;
+            //     if (!aMatch && bMatch) return 1;
+            //     return 0;
+            // });
 
+            // // Apply pagination
+            // const hospitals = sortedHospitals.slice(parseInt(offset), parseInt(offset) + parseInt(limit));
+            // const totalRecords = allHospitals.length;
+
+            // for (let h = 0; h < hospitals.length; h++) {
+
+            // let contentArr = await contentModel.find({ delete: false, hospitalId: hospitals[h]['_id'] })
+            // hospitals[h]['contentDetails'] = contentArr
+            // console.log("contentArr", contentArr);
+
+            // fallback normal if lat/long not provided
+            let query = hospitalModel.find(condition)
+                .select('ownerName socialMediaLinks name email mobileNumber address profile content city');
+
+            // Fetch all hospitals
+            const allHospitals = await query.lean();
+
+            if (city) {
+                // Separate hospitals into matching city and others
+                const cityHospitals = allHospitals
+                    .filter(h => h.city?.toLowerCase() === city.toLowerCase());
+
+                const otherHospitals = allHospitals
+                    .filter(h => h.city?.toLowerCase() !== city.toLowerCase())
+                    .sort((a, b) => a.city?.localeCompare(b.city)); // abc order
+
+                // Combine
+                const sortedHospitals = [...cityHospitals, ...otherHospitals];
+
+                // Apply pagination
+                const hospitals = sortedHospitals.slice(parseInt(offset), parseInt(offset) + parseInt(limit));
+                const totalRecords = allHospitals.length;
+
+                // Attach content details
+                for (let h = 0; h < hospitals.length; h++) {
+                    let contentArr = await contentModel.find({ delete: false, hospitalId: hospitals[h]._id });
+                    hospitals[h].contentDetails = contentArr;
+                }
+
+                return successResponse(res, 'Hospitals fetched successfully', {
+                    totalRecords,
+                    hospitals
+                }, true);
+            } else {
+                // No city → default abc sorting
+                const sortedHospitals = allHospitals.sort((a, b) => a.city?.localeCompare(b.city));
+
+                const hospitals = sortedHospitals.slice(parseInt(offset), parseInt(offset) + parseInt(limit));
+                const totalRecords = allHospitals.length;
+
+                for (let h = 0; h < hospitals.length; h++) {
+                    let contentArr = await contentModel.find({ delete: false, hospitalId: hospitals[h]._id });
+                    hospitals[h].contentDetails = contentArr;
+                }
+
+                return successResponse(res, 'Hospitals fetched successfully', {
+                    totalRecords,
+                    hospitals
+                }, true);
             }
 
-            return successResponse(res, 'Hospitals fetched successfully', {
-                totalRecords,
-                hospitals
-            }, true);
         }
     } catch (error) {
         console.error('Error fetching hospitals:', error);
         return errorResponse(res, 'Error fetching hospitals');
     }
-};
-
+}
 
 // add doctor
 const addDoctor = async (req, res) => {
@@ -332,10 +426,12 @@ const addDoctor = async (req, res) => {
             hospitalId = "",
             address = "",
             appointmentCharge = "",
+            averageAppointmentTime = "",
             experience = "",
             age,
             gender } = req.body;
 
+        let workingHours = req.body.workingHours || {};
         const profile = req.file ? `profiles/${req.file.filefullName}` : req.body.profile || "";
 
         if (!name || !email || !age || !gender) {
@@ -347,6 +443,17 @@ const addDoctor = async (req, res) => {
             return errorResponse(res, "Doctor with this email already exists");
         }
 
+        if (workingHours && Object.keys(workingHours).length == 0) {
+            workingHours = {
+                monday: { start: "09:00", end: "17:00", isAvailable: true },
+                tuesday: { start: "09:00", end: "17:00", isAvailable: true },
+                wednesday: { start: "09:00", end: "17:00", isAvailable: true },
+                thursday: { start: "09:00", end: "17:00", isAvailable: true },
+                friday: { start: "09:00", end: "17:00", isAvailable: true },
+                saturday: { start: "09:00", end: "17:00", isAvailable: true },
+                sunday: { start: "09:00", end: "17:00", isAvailable: true },
+            }
+        }
         const doctorData = {
             name,
             email,
@@ -356,10 +463,12 @@ const addDoctor = async (req, res) => {
             hospitalId,
             address,
             appointmentCharge,
+            averageAppointmentTime,
             experience,
             profile,
             age,
-            gender
+            gender,
+            workingHours
         };
 
         const newDoctor = await doctorModel.create(doctorData);
@@ -388,7 +497,7 @@ const getDoctors = async (req, res) => {
         const { data: doctors, totalRecords } = await selectdatawithjoin({
             Model: doctorModel,
             condition,
-            fields: 'name email mobileNumber specializationId degreeId hospitalId appointmentCharge experience profile age gender',
+            fields: 'name email mobileNumber specializationId degreeId hospitalId appointmentCharge averageAppointmentTime experience profile age gender',
             limit: parseInt(limit),
             offset: parseInt(offset),
             sortBy: { create: -1 },
@@ -735,8 +844,8 @@ const addAppointment = async (req, res) => {
 
 //         // ✅ Fetch existing appointments for that doctor & date
 //         const existingAppointments = await appointmentdetailModel.find({
-//             appointmentDate,
 //             doctorId,
+//             appointmentDate,
 //             delete: false,
 //         });
 
@@ -810,6 +919,220 @@ const addAppointment = async (req, res) => {
 // controllers/appointmentController.js
 
 
+// const addAppointmentV2 = async (req, res) => {
+//     let {
+//         userId,
+//         mobilenumber,
+//         fullName = "",
+//         doctorId = "",
+//         hospitalId,
+//         appointmentuserId = "",
+//         disease = "",
+//         chiefComplaints = "",
+//         probableDiagnosis = "",
+//         appointmentDate = "",
+//         appointmentTime = "",
+//         startTime = "",
+//         endTime = "",
+//         isEmergency = false
+//     } = req.body;
+
+//     try {
+//         // Validation
+//         if (!fullName) return errorResponse(res, 'Full name is required');
+//         if (!mobilenumber) return errorResponse(res, 'Mobile number is required');
+//         if (!appointmentDate || !appointmentTime || !doctorId) {
+//             return errorResponse(res, 'Doctor, appointment date, and time are required');
+//         }
+
+//         // Get duration from settings
+//         let durationData = await selectdatv2(settingModel, { key: "Duration" }, "value");
+//         let durationValue = parseInt(durationData?.data?.[0]?.value || "0");
+//         let doctor = await doctorModel.findById(doctorId);
+//         durationValue = parseInt(doctor?.averageAppointmentTime || "0");
+
+//         // // Calculate time range
+//         // const startTime = moment(`${appointmentDate} ${appointmentTime}`, "YYYY-MM-DD HH:mm");
+//         // const endTime = moment(startTime).add(durationValue, 'minutes');
+
+//         // // Check for overlapping appointments
+//         // const overlappingAppointment = await appointmentdetailModel.findOne({
+//         //     doctorId,
+//         //     appointmentDate,
+//         //     delete: false,
+//         //     appointmentTime: {
+//         //         $gte: startTime.format("HH:mm"),
+//         //         $lt: endTime.format("HH:mm")
+//         //     }
+//         // });
+
+//         // if (overlappingAppointment.length > 0) {
+//         //     return errorResponse(res, 'Selected time slot is already booked.');
+//         // }
+
+//         // const startMoment = moment(`${appointmentDate} ${appointmentTime}`, "YYYY-MM-DD HH:mm");
+//         // const endMoment = moment(startMoment).add(durationValue, "minutes");
+
+//         // // 1. Get all appointmentDetails for this doctor & date
+//         // const bookedAppointments = await appointmentdetailModel.aggregate([
+//         //     {
+//         //         $lookup: {
+//         //             from: "appointments",
+//         //             localField: "appointmentId",
+//         //             foreignField: "_id",
+//         //             as: "appointment"
+//         //         }
+//         //     },
+//         //     { $unwind: "$appointment" },
+//         //     {
+//         //         $match: {
+//         //             "appointment.doctorId": new mongoose.Types.ObjectId(doctorId),
+//         //             appointmentDate: new Date(appointmentDate),
+//         //             delete: false
+//         //         }
+//         //     }
+//         // ]);
+
+//         // // 2. Loop through existing and check overlap in JS
+//         // let isClashing = false;
+
+//         // for (const appt of bookedAppointments) {
+//         //     const existingStart = moment(`${appointmentDate} ${appt.appointmentTime}`, "YYYY-MM-DD HH:mm");
+//         //     const existingEnd = moment(existingStart).add(doctor.averageAppointmentTime, "minutes");
+
+//         //     if (startMoment.isBefore(existingEnd) && endMoment.isAfter(existingStart)) {
+//         //         isClashing = true;
+//         //         break;
+//         //     }
+//         // }
+
+//         // if (isClashing) {
+//         //     return errorResponse(res, "Selected time slot is already booked.");
+//         // }
+
+
+//         // Check or create user
+
+//         const startRange = moment(`${appointmentDate} ${appointmentTime}`, "YYYY-MM-DD HH:mm");
+//         const endRange = moment(`${appointmentDate} ${endTime}`, "YYYY-MM-DD HH:mm");
+
+//         // doctor slot size
+//         const slotSize = parseInt(doctor.averageAppointmentTime || "30");
+
+//         // 1. Get all booked appointments for this doctor & date
+//         const bookedAppointments = await appointmentdetailModel.aggregate([
+//             {
+//                 $lookup: {
+//                     from: "appointments",
+//                     localField: "appointmentId",
+//                     foreignField: "_id",
+//                     as: "appointment"
+//                 }
+//             },
+//             { $unwind: "$appointment" },
+//             {
+//                 $match: {
+//                     "appointment.doctorId": new mongoose.Types.ObjectId(doctorId),
+//                     appointmentDate: new Date(appointmentDate),
+//                     delete: false
+//                 }
+//             }
+//         ]);
+
+//         // Convert booked slots into start–end ranges
+//         const bookedRanges = bookedAppointments.map(appt => {
+//             const existingStart = moment(`${appointmentDate} ${appt.appointmentTime}`, "YYYY-MM-DD HH:mm");
+//             const existingEnd = existingStart.clone().add(slotSize, "minutes");  // ✅ clone before add
+//             return { start: existingStart, end: existingEnd };
+//         });        
+
+//         // 2. Iterate through requested range in steps of slotSize
+//         let chosenSlot = null;
+//         let current = startRange.clone();
+
+//         while (current.add(0, "minutes").isBefore(endRange)) {
+//             const potentialStart = current.clone();
+//             const potentialEnd = current.clone().add(slotSize, "minutes");
+
+//             // make sure slot fits inside requested range
+//             if (potentialEnd.isAfter(endRange)) break;
+
+//             // check overlap with any booked slot
+//             const overlap = bookedRanges.some(
+//                 b => potentialStart.isBefore(b.end) && potentialEnd.isAfter(b.start)
+//             );
+
+//             if (!overlap) {
+//                 chosenSlot = { start: potentialStart, end: potentialEnd };
+//                 break;
+//             }
+
+//             // move to next slot
+//             current = current.add(slotSize, "minutes");
+//         }
+
+//         // 3. Decide
+//         if (!chosenSlot) {
+//             return errorResponse(res, "No available slot in requested range.");
+//         }
+
+//         let checkMobileNumber = await userModel.findOne({ mobileNumber: mobilenumber, delete: false });
+//         if (!checkMobileNumber) {
+//             const user = await saveModel(userModel, {
+//                 fullName,
+//                 mobileNumber: mobilenumber,
+//             });
+//             userId = user._id;
+//         } else {
+//             userId = checkMobileNumber._id;
+//         }
+
+//         // Create appointment
+//         const appointmentField = {
+//             userId,
+//             mobileNumber: mobilenumber,
+//             fullName,
+//             hospitalId,
+//             doctorId,
+//             create: new Date()
+//         };
+//         const savedAppointment = await saveModel(appointmentModel, appointmentField);
+
+//         if (!savedAppointment) {
+//             return errorResponse(res, 'Error creating appointment');
+//         }
+
+//         // Build appointment detail data
+//         const appointmentDetailField = {
+//             userId,
+//             disease,
+//             doctorId,
+//             duration: `${durationValue}`,
+//             appointmentDate,
+//             appointmentTime : chosenSlot.start.format("HH:mm"),
+//             startTime: startTime ? startTime : appointmentTime,
+//             endTime: endTime,
+//             chiefComplaints,
+//             probableDiagnosis,
+//             isEmergency,
+//             appointmentId: savedAppointment._id,
+//             create: new Date()
+//         };
+
+//         // Only add appointmentuserId if it's valid
+//         if (appointmentuserId && mongoose.Types.ObjectId.isValid(appointmentuserId)) {
+//             appointmentDetailField.appointmentuserId = appointmentuserId;
+//         }
+
+//         await saveModel(appointmentdetailModel, appointmentDetailField);
+
+//         return successResponse(res, 'Appointment created successfully', []);
+//     } catch (error) {
+//         console.error('Error in addAppointmentV2:', error);
+//         return errorResponse(res, 'Error adding appointment');
+//     }
+// };
+
 const addAppointmentV2 = async (req, res) => {
     let {
         userId,
@@ -819,8 +1142,12 @@ const addAppointmentV2 = async (req, res) => {
         hospitalId,
         appointmentuserId = "",
         disease = "",
+        chiefComplaints = "",
+        probableDiagnosis = "",
         appointmentDate = "",
         appointmentTime = "",
+        startTime = "",
+        endTime = "",
         isEmergency = false
     } = req.body;
 
@@ -835,27 +1162,76 @@ const addAppointmentV2 = async (req, res) => {
         // Get duration from settings
         let durationData = await selectdatv2(settingModel, { key: "Duration" }, "value");
         let durationValue = parseInt(durationData?.data?.[0]?.value || "0");
+        let doctor = await doctorModel.findById(doctorId);
+        durationValue = parseInt(doctor?.averageAppointmentTime || "0");
 
-        // Calculate time range
-        const startTime = moment(`${appointmentDate} ${appointmentTime}`, "YYYY-MM-DD HH:mm");
-        const endTime = moment(startTime).add(durationValue, 'minutes');
+        const startRange = moment(`${appointmentDate} ${startTime}`, "YYYY-MM-DD HH:mm");
+        const endRange = moment(`${appointmentDate} ${endTime}`, "YYYY-MM-DD HH:mm");
 
-        // Check for overlapping appointments
-        const overlappingAppointment = await appointmentdetailModel.findOne({
-            doctorId,
-            appointmentDate,
-            delete: false,
-            appointmentTime: {
-                $gte: startTime.format("HH:mm"),
-                $lt: endTime.format("HH:mm")
+        // doctor slot size
+        const slotSize = parseInt(doctor.averageAppointmentTime || "30");
+
+        // 1. Get all booked appointments for this doctor & date
+        const bookedAppointments = await appointmentdetailModel.aggregate([
+            {
+                $lookup: {
+                    from: "appointments",
+                    localField: "appointmentId",
+                    foreignField: "_id",
+                    as: "appointment"
+                }
+            },
+            { $unwind: "$appointment" },
+            {
+                $match: {
+                    "appointment.doctorId": new mongoose.Types.ObjectId(doctorId),
+                    appointmentDate: new Date(appointmentDate),
+                    delete: false
+                }
             }
+        ]);
+
+        // Convert booked slots into start–end ranges
+        const bookedRanges = bookedAppointments.map(appt => {
+            const existingStart = moment(`${appointmentDate} ${appt.appointmentTime}`, "YYYY-MM-DD HH:mm");
+            const existingEnd = existingStart.clone().add(slotSize, "minutes");  // ✅ clone before add
+            return { start: existingStart, end: existingEnd };
         });
 
-        if (overlappingAppointment) {
-            return errorResponse(res, 'Selected time slot is already booked.');
+        // 2. Iterate through requested range in steps of slotSize
+        let chosenSlot = null;
+        let current = startRange.clone();
+        let totalBookedMinutes = 0;
+
+        while (current.add(0, "minutes").isBefore(endRange)) {
+            const potentialStart = current.clone();
+            let potentialEnd = current.clone().add(slotSize, "minutes");
+
+            // make sure slot fits inside requested range
+            if ((60 - totalBookedMinutes) < 3 && potentialEnd.isAfter(endRange)) break;
+            //if potentialEnd > endRange then set potentialEnd to endRnage
+            if(potentialEnd.isAfter(endRange)) potentialEnd = endRange;
+
+            // check overlap with any booked slot
+            const overlap = bookedRanges.some(
+                b => potentialStart.isBefore(b.end) && potentialEnd.isAfter(b.start)
+            );
+
+            if (!overlap) {
+                chosenSlot = { start: potentialStart, end: potentialEnd };
+                break;
+            }
+
+            // move to next slot
+            current = current.add(slotSize, "minutes");
+            totalBookedMinutes += slotSize;
         }
 
-        // Check or create user
+        // 3. Decide
+        if (!chosenSlot) {
+            return errorResponse(res, "No available slot in requested range.");
+        }
+
         let checkMobileNumber = await userModel.findOne({ mobileNumber: mobilenumber, delete: false });
         if (!checkMobileNumber) {
             const user = await saveModel(userModel, {
@@ -873,6 +1249,7 @@ const addAppointmentV2 = async (req, res) => {
             mobileNumber: mobilenumber,
             fullName,
             hospitalId,
+            doctorId,
             create: new Date()
         };
         const savedAppointment = await saveModel(appointmentModel, appointmentField);
@@ -888,7 +1265,11 @@ const addAppointmentV2 = async (req, res) => {
             doctorId,
             duration: `${durationValue}`,
             appointmentDate,
-            appointmentTime,
+            appointmentTime: chosenSlot.start.format("HH:mm"),
+            startTime: startTime ? startTime : appointmentTime,
+            endTime: endTime,
+            chiefComplaints,
+            probableDiagnosis,
             isEmergency,
             appointmentId: savedAppointment._id,
             create: new Date()
@@ -899,19 +1280,34 @@ const addAppointmentV2 = async (req, res) => {
             appointmentDetailField.appointmentuserId = appointmentuserId;
         }
 
-        await saveModel(appointmentdetailModel, appointmentDetailField);
+        const savedAppointmentDetail = await saveModel(appointmentdetailModel, appointmentDetailField);
 
-        return successResponse(res, 'Appointment created successfully', []);
+        const hospital = await hospitalModel.findById(hospitalId);
+        const hospitalAddress = hospital.address + ", " + hospital.city + ", " + hospital.state + ", " + hospital.pincode;
+
+        const bookingTimeForWhatsApp = formatBookingTime(savedAppointmentDetail.appointmentDate, savedAppointmentDetail.appointmentTime);
+        const whatsappMessageData = {
+            patientName: fullName,
+            doctorName: doctor.name,
+            hospitalAddress: hospitalAddress,
+            bookingTime: bookingTimeForWhatsApp
+        }
+        await sendWhatsAppMessages("newAppointment", [mobilenumber], whatsappMessageData);
+
+        return successResponse(res, 'Appointment created successfully', [
+            {
+                appointmentId: savedAppointment._id,
+                appointmentDetailId: appointmentDetailField._id,
+                startTime: appointmentDetailField.startTime,
+                endTime: appointmentDetailField.endTime,
+                slot: appointmentDetailField.appointmentTime
+            }
+        ]);
     } catch (error) {
         console.error('Error in addAppointmentV2:', error);
         return errorResponse(res, 'Error adding appointment');
     }
 };
-
-
-
-
-
 
 const deleteAppointment = async (req, res) => {
     const { appointmentId } = req.body;
@@ -936,19 +1332,103 @@ const deleteAppointment = async (req, res) => {
             { $set: { delete: true } }
         );
 
+        // Soft delete appointment details
+        const details = await appointmentdetailModel.findOne({ appointmentId });
+        if (details) {
+            details.delete = true;
+            await details.save();
 
-        // Soft delete the appointment details
-        await appointmentdetailModel.updateMany(
-            { appointmentId },
-            { $set: { delete: true } }
-        );
+            const appointmentDetails = await getAppointmentDetails(appointmentId);
 
+            const bookingTimeForWhatsApp = formatBookingTime(appointmentDetails.appointmentDate, appointmentDetails.appointmentTime);
+            const whatsappMessageData = {
+                patientName: appointmentDetails.patient.fullName,
+                doctorName: appointmentDetails.doctor.name,
+                hospitalAddress: appointmentDetails.hospital.address + ", " + appointmentDetails.hospital.city + ", " + appointmentDetails.hospital.state + ", " + appointmentDetails.hospital.pincode,
+                bookingTime: bookingTimeForWhatsApp
+            }
+            await sendWhatsAppMessages("deleteAppointment", [appointmentDetails.patient.mobileNumber], whatsappMessageData);
+
+            // ⚡ Shift remaining appointments for that doctor/date
+            await shiftAppointments(details.doctorId, details.appointmentDate, details.startTime, details.endTime, parseInt(details.duration) || 30);
+        }
 
         return successResponse(res, 'Appointment deleted successfully', []);
-
     } catch (error) {
         console.error('Error deleting appointment:', error);
         return errorResponse(res, 'Error deleting appointment');
+    }
+}
+
+const getSlotsDetails = async (req, res) => {
+    try {
+        const { doctorId, date } = req.body;
+        if (!doctorId || !date) {
+            return errorResponse(res, 'Doctor ID and date are required');
+        }
+
+        const doctorDetails = await doctorModel.findById(doctorId);
+
+        let averageDuration = doctorDetails.averageAppointmentTime;
+
+        const appointments = await appointmentdetail.find({
+            doctorId,
+            appointmentDate: date,
+            delete: false
+        });
+
+        const workStart = moment("09:00", "HH:mm");
+        const workEnd = moment("19:00", "HH:mm");
+
+        let hourSlots = [];
+        let current = workStart.clone();
+        while (current.isBefore(workEnd)) {
+            let next = current.clone().add(1, "hour");
+            hourSlots.push({
+                start: current.format("HH:mm"),
+                end: next.format("HH:mm"),
+                isAvailable: true
+            });
+            current = next;
+        }
+
+        // Check booked appointments against each hour slot
+        appointments.forEach(appt => {
+            const apptStart = moment(appt.appointmentTime, "HH:mm"); // e.g., "11:20"
+            const apptEnd = apptStart.clone().add(averageDuration, "minutes");
+
+            hourSlots.forEach(slot => {
+                const slotStart = moment(slot.start, "HH:mm");
+                const slotEnd = moment(slot.end, "HH:mm");
+
+                // If appointment fits in slot => mark slot unavailable
+                if (
+                    (apptStart.isSameOrAfter(slotStart) && apptStart.isBefore(slotEnd)) ||
+                    (apptEnd.isAfter(slotStart) && apptEnd.isSameOrBefore(slotEnd))
+                ) {
+                    slot.isAvailable = false;
+                }
+            });
+        });
+
+        // Filter only available slots
+        const availableSlots = hourSlots
+            .filter(slot => slot.isAvailable)
+            .map(slot => ({
+                startTime: slot.start,
+                endTime: slot.end,
+                timeRange: `${slot.start}-${slot.end}`
+            }));
+
+        return successResponse(res, "Available slots fetched successfully", {
+            doctorId,
+            date,
+            averageDuration,
+            availableSlots
+        });
+    } catch (error) {
+        console.error('Error fetching slots:', error);
+        return errorResponse(res, 'Error fetching slots: ' + error.message);
     }
 }
 
@@ -1115,7 +1595,7 @@ const deleteAppointment = async (req, res) => {
 //                 };
 //             }
 //             groupedAppointments[appointment].appointmentDetails.push({
-//                 ...detail,
+//                 ...detail.toObject(),
 //                 appointmentId: undefined
 //             });
 //         });
@@ -1229,7 +1709,7 @@ const deleteAppointment = async (req, res) => {
 //         const groupedAppointments = {};
 //         appointmentDetails.forEach(detail => {
 //             const appointment = detail.appointmentId?._id?.toString();
-//             if (!appointment) return;
+//             if (!appointment) return; // skip if no appointment linked
 
 //             if (!groupedAppointments[appointment]) {
 //                 groupedAppointments[appointment] = {
@@ -1240,6 +1720,7 @@ const deleteAppointment = async (req, res) => {
 //                 };
 //             }
 
+//             // push the appointment detail
 //             groupedAppointments[appointment].appointmentDetails.push({
 //                 ...ensureDefaultFields(detail),
 //                 appointmentId: undefined // to avoid redundancy
@@ -1625,7 +2106,7 @@ const getUserList = async (req, res) => {
             fields: 'fullName email mobileNumber gender address profile stateId cityId zipCode registerAppVersion registerOS registerDevice',
             limit: parseInt(limit),
             offset: parseInt(offset),
-            sortBy: { create: -1 },
+            sortBy: { create: -1 }
         });
 
         return successResponse(res, 'Users fetched successfully', {
@@ -1949,6 +2430,7 @@ module.exports = {
     adminProfile,
     addAppointment,
     addAppointmentV2,
+    getSlotsDetails,
     addHospital,
     getHospitals,
     addDoctor,
@@ -1969,4 +2451,5 @@ module.exports = {
     hospitalLogin,
     hospitalView,
     editAppointmentDetailsV2,
+    getSlotsDetails
 }

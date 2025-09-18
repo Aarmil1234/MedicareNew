@@ -5,6 +5,7 @@ const appointmentdetailSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'user', required: false },
     appointmentuserId: { type: mongoose.Schema.Types.ObjectId, ref: 'user', required: false },
     appointmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'appointment', required: false },
+    doctorId: { type: mongoose.Schema.Types.ObjectId, ref: 'doctor', required: false },
     // diseaseId: { type: mongoose.Schema.Types.ObjectId, ref: 'disease', required: false },
 
     chiefComplaints: { type: String, required: false, default: "" },
@@ -19,6 +20,8 @@ const appointmentdetailSchema = new mongoose.Schema({
     duration: { type: String, required: false },
     appointmentDate: { type: Date, required: false },
     appointmentTime: { type: String, required: false },
+    startTime: { type: String, required: false },
+    endTime: { type: String, required: false },
     inTime: { type: String, required: false },
     outTime: { type: String, required: false },
 

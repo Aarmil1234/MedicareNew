@@ -3,6 +3,7 @@ const bodyParser = require('body-parser');
 const connectToMongo = require('./app/connection/db');
 // const uploadRoutes = require('./app/controller/uploads/admin/profiles');
 const cors = require('cors');
+const { initAppointmentReminderCron } = require('./app/helper/appointmentReminderCron');
 const app = express();
 const port = 3000;
 
@@ -12,6 +13,9 @@ app.use(express.json()); // Parse incoming JSON requests
 // Connect to MongoDB
 connectToMongo();
 app.use(cors());
+
+// Initialize cron jobs
+initAppointmentReminderCron();
 
 // medicare routes
 app.use('/medicare', require('./app/routes/routes'));
