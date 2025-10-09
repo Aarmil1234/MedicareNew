@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const md5 = require('md5');
 const userModel = require('../../model/user');
+const { sendOTP, verifyOtpDB } = require('../../helper/otpService');
 const { successResponse, errorResponse, saveModel, selectdata, selectdatv2, updateModel } = require('../../helper/index');
 
 // POST route to create or edit an user
@@ -71,20 +72,25 @@ const addEditUser = async (req, res) => {
 
 // login 
 const login = async (req, res) => {
-    let loginField = req.body.loginField || "";
+    let mobileNumber = req.body.mobileNumber || "";
     let password = req.body.password || "";
 
     try {
         const user = await userModel.findOne({
-            $or: [{ email: loginField }, { mobileNumber: loginField }],
+            $or: [{ mobileNumber: mobileNumber }],
             delete: false,
-            password: md5(password)
+            // password: md5(password)
         });
         if (!user) {
             return errorResponse(res, 'Invalid credentials');
         }
 
-        return successResponse(res, 'Login successful', user);
+        const response = await sendOTP(user.mobileNumber);
+        console.log(response);
+        if(response.success){
+            return successResponse(res, 'Login successful', user);
+        }
+        return errorResponse(res, 'Error logging in');
     } catch (error) {
         console.error('Error logging in:', error);
         return errorResponse(res, 'Error logging in');
@@ -111,9 +117,26 @@ const userProfile = async (req, res) => {
     }
 }
 
+// verify otp
+const verifyOtp = async (req, res) => {
+    let mobileNumber = req.body.mobileNumber || "";
+    let otp = req.body.otp || "";
+
+    try {
+        const response = await verifyOtpDB(mobileNumber, otp);
+        if(response){
+            return successResponse(res, 'Login successful', response);
+        }
+        return errorResponse(res, 'Invalid OTP');
+    } catch (error) {
+        console.error('Error logging in:', error);
+        return errorResponse(res, 'Error logging in');
+    }
+}
 
 module.exports = {
     addEditUser,
     login,
     userProfile,
+    verifyOtp
 }

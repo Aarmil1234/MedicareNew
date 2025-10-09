@@ -3,7 +3,6 @@ const axios = require("axios");
 require('dotenv').config();
 
 const AISENSY_URL = "https://cloud.apikaro.in/api";
-const VENDOR_ID = process.env.VENDOR_ID;
 
 const API_KEY = process.env.WHATSAPP_API_KEY;
 
@@ -14,7 +13,7 @@ async function sendWhatsAppMessages(appointmentType, numbers, data) {
 
   switch (appointmentType) {
     case "newAppointment":
-      campaignName = "appointment_booked_v2";
+      campaignName = "appointment_booked";
       templateParams = [
         data.patientName,
         data.doctorName,
@@ -24,7 +23,7 @@ async function sendWhatsAppMessages(appointmentType, numbers, data) {
       break;
 
     case "deleteAppointment":
-      campaignName = "appointment_cancel_v2"; 
+      campaignName = "appointment_cancel"; 
       templateParams = [
         data.patientName,
         data.doctorName,
@@ -34,7 +33,7 @@ async function sendWhatsAppMessages(appointmentType, numbers, data) {
       break;
 
     case "reminderAppointment":
-      campaignName = "appointment_reminder_v2"; 
+      campaignName = "appointment_reminder"; 
       templateParams = [
         data.patientName,
         data.doctorName,
@@ -44,7 +43,7 @@ async function sendWhatsAppMessages(appointmentType, numbers, data) {
       break;
 
     case "shiftAppointment":
-      campaignName = "appointment_shift_v2"; 
+      campaignName = "  "; 
       templateParams = [
         data.patientName,
         data.doctorName,
@@ -54,7 +53,7 @@ async function sendWhatsAppMessages(appointmentType, numbers, data) {
       break;
 
     default:
-      campaignName = "appointment_booked_v2";
+      campaignName = "appointment_booked";
       templateParams = [
         data.patientName,
         data.doctorName,
@@ -66,28 +65,38 @@ async function sendWhatsAppMessages(appointmentType, numbers, data) {
   for (const number of numbers) {
     try {
       const payload = {
-        phone_number: number,
+        from_phone_number_id: process.env.FROM_PHONE_NUMBER_ID || "",
+        phone_number_id: number,
         template_name: campaignName,
-        template_language: "en_US",
+        template_language: "en",
+        header_image: "",
+        header_video: "",
+        header_document: "",
+        header_document_name: "",
         header_field_1: templateParams[0] || "",
+        location_latitude: "",
+        location_longitude: "",
+        location_name: "",
+        location_address: "",
         field_1: templateParams[0] || "",
         field_2: templateParams[1] || "",
         field_3: templateParams[2] || "",
         field_4: templateParams[3] || "",
+        button_0: "",
+        button_1: "",
+        copy_code: "",
         contact: {
           first_name: templateParams[0] || "User",
           last_name: "",
           email: "",
           country: "india",
-          language_code: "en_US",
+          language_code: "en",
           groups: ""
         }
       };
 
-      const response = await axios.post(`${AISENSY_URL}/${VENDOR_ID}/contact/send-template-message`, payload, {
-        headers: { "Content-Type": "application/json" ,
-          "Authorization": `Bearer ${process.env.WHATSAPP_API_KEY}`,
-        },
+      const response = await axios.post(AISENSY_URL, payload, {
+        headers: { "Content-Type": "application/json" },
       });
 
       console.log(`Message sent to ${number}`, response.data);

@@ -15,7 +15,7 @@ connectToMongo();
 app.use(cors());
 
 // Initialize cron jobs
-initAppointmentReminderCron();
+// initAppointmentReminderCron();
 
 // medicare routes
 app.use('/medicare', require('./app/routes/routes'));

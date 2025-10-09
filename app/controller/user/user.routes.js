@@ -30,11 +30,12 @@ const uploadProfile = multer({ storage: userProfile });
 
 // Apply global middleware
 router.use(express.json()); // Parses JSON requests
-router.use(authenticate); // Global authentication middleware
+// router.use(authenticate); // Global authentication middleware
 
 // Define the register route
 router.post('/addedituser', uploadProfile.single('profile'), validate(validation.addEditUser), controller.addEditUser);
 router.post('/login', validate(validation.login), controller.login);
+router.post('/verifyotp', controller.verifyOtp);
 router.post('/userprofile', controller.userProfile);
 
 module.exports = router;
