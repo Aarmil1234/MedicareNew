@@ -1,5 +1,6 @@
 const axios = require("axios");
 const otpVerificationModel = require("../model/otpVerification");
+const { default: OtpVerification } = require("../model/otpVerification");
 require("dotenv").config();
 
 const SHREESMS_URL = "https://web.shreesms.net/API/SendSMS.aspx";
@@ -22,8 +23,7 @@ async function sendOTP(mobileNumber) {
     const otp = generateOTP();
 
     // 🚨 MUST match template exactly with {#var#} replaced
-    const message = `Login OTP is Test01 for Queueless Mobile App. This will be valid only for 10 min. Please Don't share with anyone -Team Queueless`;
-
+    const message = `Login OTP is ${otp} for Queueless. This will be valid only for 10 min. Please Don't share with anyone -Team Queueless`;
     const url = `${SHREESMS_URL}` +
         `?APIkey=${SHREESMS_API_KEY}` +
         `&SenderID=${SHREESMS_SENDER_ID}` +
@@ -38,6 +38,10 @@ async function sendOTP(mobileNumber) {
         console.log("ShreeSMS Response:", response.data);
 
         if (response.data.startsWith("ok|")) {
+            const addOtpVerificationResult = await addOtpVerification(mobileNumber, otp);
+            if (!addOtpVerificationResult) {
+                return { success: false, otp: null, error: "Failed to add OTP verification" };
+            }
             return { success: true, otp, response: response.data };
         } else {
             return { success: false, otp: null, error: response.data };
@@ -50,35 +54,68 @@ async function sendOTP(mobileNumber) {
 
 async function addOtpVerification(mobileNumber, otp) {
     try {
-        const otpVerification = new otpVerificationModel({
-            mobileNumber,
-            otp,
-            expiresAt: Date.now() + (otpExpiryMinutes * 60 * 1000), // 10 minutes
-        });
-        const savedOtpVerification = await otpVerification.save();
+        await OtpVerification.findOneAndUpdate(
+            { mobileNumber },
+            {
+                $set: {
+                    otp,
+                    expiresAt: Date.now() + (otpExpiryMinutes * 60 * 1000), // 10 minutes
+                    isVerified: false,
+                    attempts: 0,
+                    updatedAt: Date.now()
+                }
+            },
+            { upsert: true, new: true }
+        );
         return true;
     } catch (error) {
-        console.error("Error:", error.message);
+        console.error("Error in addOtpVerification:", error.message);
         return false;
     }
 }
 
 async function verifyOtpDB(mobileNumber, otp) {
     try {
-        const otpVerification = await otpVerificationModel.findOne({ mobileNumber });
+        const otpVerification = await OtpVerification.findOne({ mobileNumber });
         if (!otpVerification) {
-            return false;
+            return {
+                status : false,
+                message : "Generate OTP first"
+            };
         }
         if (otpVerification.otp !== otp) {
-            return false;
+            otpVerification.attempts++;
+            await otpVerification.save();
+            if (otpVerification.attempts >= 3) {
+                await OtpVerification.deleteOne({ mobileNumber });
+                return {
+                    status : false,
+                    message : "Too many attempts"
+                };
+            }
+            return {
+                status : false,
+                message : "Invalid OTP"
+            };
         }
         if (otpVerification.expiresAt < Date.now()) {
-            return false;
+            // delete otpVerification
+            await OtpVerification.deleteOne({ mobileNumber });
+            return {
+                status : false,
+                message : "OTP has expired"
+            };
         }
-        return true;
+        return {
+            status : true,
+            message : "OTP verified successfully"
+        };
     } catch (error) {
         console.error("Error:", error.message);
-        return false;
+        return {
+            status : false,
+            message : "Failed to verify OTP"
+        };
     }
 }
 

@@ -16,7 +16,7 @@ const mediaModel = require('../../model/media');
 const contentModel = require('../../model/content');
 const bannerModel = require('../../model/banner');
 const mongoose = require("mongoose");
-const { shiftAppointments, formatBookingTime, getAppointmentDetails } = require('../../helper/appointmentHelper');
+const { shiftAppointments, formatBookingTime, getAppointmentDetails, setDoctorWorkingHour, isWithinWorkingHours } = require('../../helper/appointmentHelper');
 const { sendWhatsAppMessages } = require('../../helper/whatsappService');
 const { sendOTP } = require('../../helper/otpService');
 const { successResponse, errorResponse, saveModel, selectdata, selectdatv2, updateModel, selectdatawithjoin } = require('../../helper/index');
@@ -234,7 +234,6 @@ const addHospital = async (req, res) => {
     }
 };
 
-
 // imageUpload
 const imageUpload = async (req, res) => {
     try {
@@ -443,17 +442,8 @@ const addDoctor = async (req, res) => {
             return errorResponse(res, "Doctor with this email already exists");
         }
 
-        if (workingHours && Object.keys(workingHours).length == 0) {
-            workingHours = {
-                monday: { start: "09:00", end: "17:00", isAvailable: true },
-                tuesday: { start: "09:00", end: "17:00", isAvailable: true },
-                wednesday: { start: "09:00", end: "17:00", isAvailable: true },
-                thursday: { start: "09:00", end: "17:00", isAvailable: true },
-                friday: { start: "09:00", end: "17:00", isAvailable: true },
-                saturday: { start: "09:00", end: "17:00", isAvailable: true },
-                sunday: { start: "09:00", end: "17:00", isAvailable: true },
-            }
-        }
+        workingHours = await setDoctorWorkingHour(workingHours);
+
         const doctorData = {
             name,
             email,
@@ -1133,6 +1123,182 @@ const addAppointment = async (req, res) => {
 //     }
 // };
 
+// const addAppointmentV2 = async (req, res) => {
+//     let {
+//         userId,
+//         mobilenumber,
+//         fullName = "",
+//         doctorId = "",
+//         hospitalId,
+//         appointmentuserId = "",
+//         disease = "",
+//         chiefComplaints = "",
+//         probableDiagnosis = "",
+//         appointmentDate = "",
+//         appointmentTime = "",
+//         startTime = "",
+//         endTime = "",
+//         isEmergency = false
+//     } = req.body;
+
+//     try {
+//         // Validation
+//         if (!fullName) return errorResponse(res, 'Full name is required');
+//         if (!mobilenumber) return errorResponse(res, 'Mobile number is required');
+//         if (!appointmentDate || !appointmentTime || !doctorId) {
+//             return errorResponse(res, 'Doctor, appointment date, and time are required');
+//         }
+
+//         // Get duration from settings
+//         let durationData = await selectdatv2(settingModel, { key: "Duration" }, "value");
+//         let durationValue = parseInt(durationData?.data?.[0]?.value || "0");
+//         let doctor = await doctorModel.findById(doctorId);
+//         durationValue = parseInt(doctor?.averageAppointmentTime || "0");
+
+//         const startRange = moment(`${appointmentDate} ${startTime}`, "YYYY-MM-DD HH:mm");
+//         const endRange = moment(`${appointmentDate} ${endTime}`, "YYYY-MM-DD HH:mm");
+
+//         // doctor slot size
+//         const slotSize = parseInt(doctor.averageAppointmentTime || "30");
+
+//         // 1. Get all booked appointments for this doctor & date
+//         const bookedAppointments = await appointmentdetailModel.aggregate([
+//             {
+//                 $lookup: {
+//                     from: "appointments",
+//                     localField: "appointmentId",
+//                     foreignField: "_id",
+//                     as: "appointment"
+//                 }
+//             },
+//             { $unwind: "$appointment" },
+//             {
+//                 $match: {
+//                     "appointment.doctorId": new mongoose.Types.ObjectId(doctorId),
+//                     appointmentDate: new Date(appointmentDate),
+//                     delete: false
+//                 }
+//             }
+//         ]);
+
+//         // Convert booked slots into start–end ranges
+//         const bookedRanges = bookedAppointments.map(appt => {
+//             const existingStart = moment(`${appointmentDate} ${appt.appointmentTime}`, "YYYY-MM-DD HH:mm");
+//             const existingEnd = existingStart.clone().add(slotSize, "minutes");  // ✅ clone before add
+//             return { start: existingStart, end: existingEnd };
+//         });
+
+//         // 2. Iterate through requested range in steps of slotSize
+//         let chosenSlot = null;
+//         let current = startRange.clone();
+//         let totalBookedMinutes = 0;
+
+//         while (current.add(0, "minutes").isBefore(endRange)) {
+//             const potentialStart = current.clone();
+//             let potentialEnd = current.clone().add(slotSize, "minutes");
+
+//             // make sure slot fits inside requested range
+//             if ((60 - totalBookedMinutes) < 3 && potentialEnd.isAfter(endRange)) break;
+//             //if potentialEnd > endRange then set potentialEnd to endRnage
+//             if(potentialEnd.isAfter(endRange)) potentialEnd = endRange;
+
+//             // check overlap with any booked slot
+//             const overlap = bookedRanges.some(
+//                 b => potentialStart.isBefore(b.end) && potentialEnd.isAfter(b.start)
+//             );
+
+//             if (!overlap) {
+//                 chosenSlot = { start: potentialStart, end: potentialEnd };
+//                 break;
+//             }
+
+//             // move to next slot
+//             current = current.add(slotSize, "minutes");
+//             totalBookedMinutes += slotSize;
+//         }
+
+//         // 3. Decide
+//         if (!chosenSlot) {
+//             return errorResponse(res, "No available slot in requested range.");
+//         }
+
+//         let checkMobileNumber = await userModel.findOne({ mobileNumber: mobilenumber, delete: false });
+//         if (!checkMobileNumber) {
+//             const user = await saveModel(userModel, {
+//                 fullName,
+//                 mobileNumber: mobilenumber,
+//             });
+//             userId = user._id;
+//         } else {
+//             userId = checkMobileNumber._id;
+//         }
+
+//         // Create appointment
+//         const appointmentField = {
+//             userId,
+//             mobileNumber: mobilenumber,
+//             fullName,
+//             hospitalId,
+//             doctorId,
+//             create: new Date()
+//         };
+//         const savedAppointment = await saveModel(appointmentModel, appointmentField);
+
+//         if (!savedAppointment) {
+//             return errorResponse(res, 'Error creating appointment');
+//         }
+
+//         // Build appointment detail data
+//         const appointmentDetailField = {
+//             userId,
+//             disease,
+//             doctorId,
+//             duration: `${durationValue}`,
+//             appointmentDate,
+//             appointmentTime: chosenSlot.start.format("HH:mm"),
+//             startTime: startTime ? startTime : appointmentTime,
+//             endTime: endTime,
+//             chiefComplaints,
+//             probableDiagnosis,
+//             isEmergency,
+//             appointmentId: savedAppointment._id,
+//             create: new Date()
+//         };
+
+//         // Only add appointmentuserId if it's valid
+//         if (appointmentuserId && mongoose.Types.ObjectId.isValid(appointmentuserId)) {
+//             appointmentDetailField.appointmentuserId = appointmentuserId;
+//         }
+
+//         const savedAppointmentDetail = await saveModel(appointmentdetailModel, appointmentDetailField);
+
+//         const hospital = await hospitalModel.findById(hospitalId);
+//         const hospitalAddress = hospital.address + ", " + hospital.city + ", " + hospital.state + ", " + hospital.pincode;
+
+//         const bookingTimeForWhatsApp = formatBookingTime(savedAppointmentDetail.appointmentDate, savedAppointmentDetail.appointmentTime);
+//         const whatsappMessageData = {
+//             patientName: fullName,
+//             doctorName: doctor.name,
+//             hospitalAddress: hospitalAddress,
+//             bookingTime: bookingTimeForWhatsApp
+//         }
+//         await sendWhatsAppMessages("newAppointment", [mobilenumber], whatsappMessageData);
+
+//         return successResponse(res, 'Appointment created successfully', [
+//             {
+//                 appointmentId: savedAppointment._id,
+//                 appointmentDetailId: appointmentDetailField._id,
+//                 startTime: appointmentDetailField.startTime,
+//                 endTime: appointmentDetailField.endTime,
+//                 slot: appointmentDetailField.appointmentTime
+//             }
+//         ]);
+//     } catch (error) {
+//         console.error('Error in addAppointmentV2:', error);
+//         return errorResponse(res, 'Error adding appointment');
+//     }
+// };
+
 const addAppointmentV2 = async (req, res) => {
     let {
         userId,
@@ -1164,6 +1330,25 @@ const addAppointmentV2 = async (req, res) => {
         let durationValue = parseInt(durationData?.data?.[0]?.value || "0");
         let doctor = await doctorModel.findById(doctorId);
         durationValue = parseInt(doctor?.averageAppointmentTime || "0");
+
+        // Get day of week (0 = Sunday, 1 = Monday, etc.)
+        const dayOfWeek = moment(appointmentDate).day();
+        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const dayName = days[dayOfWeek];
+
+        // Get working hours for this day
+        const dayWorkingHours = doctor.workingHours?.[dayName];
+
+        // Check if doctor is available on this day
+        if (!dayWorkingHours || !dayWorkingHours.isAvailable) {
+            return errorResponse(res, 'Doctor is not available on this day');
+        }
+
+        // Check if appointment time is within working hours
+        const isWithinWorkingHoursResult = isWithinWorkingHours(appointmentDate, startTime, endTime, dayWorkingHours)
+        if (!isWithinWorkingHoursResult) {
+            return errorResponse(res, 'Appointment time is not within doctor\'s working hours');
+        }
 
         const startRange = moment(`${appointmentDate} ${startTime}`, "YYYY-MM-DD HH:mm");
         const endRange = moment(`${appointmentDate} ${endTime}`, "YYYY-MM-DD HH:mm");
@@ -1210,7 +1395,7 @@ const addAppointmentV2 = async (req, res) => {
             // make sure slot fits inside requested range
             if ((60 - totalBookedMinutes) < 3 && potentialEnd.isAfter(endRange)) break;
             //if potentialEnd > endRange then set potentialEnd to endRnage
-            if(potentialEnd.isAfter(endRange)) potentialEnd = endRange;
+            if (potentialEnd.isAfter(endRange)) potentialEnd = endRange;
 
             // check overlap with any booked slot
             const overlap = bookedRanges.some(
@@ -1377,19 +1562,76 @@ const getSlotsDetails = async (req, res) => {
             delete: false
         });
 
-        const workStart = moment("09:00", "HH:mm");
-        const workEnd = moment("19:00", "HH:mm");
+        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const dayOfWeek = new Date(date).getDay();
+        const dayName = days[dayOfWeek];
+        const dayWorkingHours = doctorDetails.workingHours?.[dayName];
+        
+        if (!dayWorkingHours || !dayWorkingHours.isAvailable) {
+            return []; // Return empty slots if doctor is not available on this day
+        }
+        
+        const workStart = moment(`${date} ${dayWorkingHours.start}`, "YYYY-MM-DD HH:mm");
+        const workEnd = moment(`${date} ${dayWorkingHours.end}`, "YYYY-MM-DD HH:mm");
 
         let hourSlots = [];
         let current = workStart.clone();
+        
+        // Convert break times to moment objects for comparison
+        const breaks = (dayWorkingHours.breaks || []).map(breakTime => ({
+            start: moment(`${date} ${breakTime.start}`, "YYYY-MM-DD HH:mm"),
+            end: moment(`${date} ${breakTime.end}`, "YYYY-MM-DD HH:mm")
+        })).sort((a, b) => a.start.diff(b.start));
+
         while (current.isBefore(workEnd)) {
-            let next = current.clone().add(1, "hour");
-            hourSlots.push({
-                start: current.format("HH:mm"),
-                end: next.format("HH:mm"),
-                isAvailable: true
-            });
-            current = next;
+            const slotStart = current.clone();
+            const slotEnd = moment.min(
+                current.clone().add(1, "hour"),
+                workEnd
+            );
+            
+            // Find any breaks that overlap with this hour
+            const overlappingBreaks = breaks.filter(breakTime => 
+                !(breakTime.end.isSameOrBefore(slotStart) || breakTime.start.isSameOrAfter(slotEnd))
+            );
+
+            if (overlappingBreaks.length === 0) {
+                // No breaks in this hour, add full hour slot
+                hourSlots.push({
+                    start: slotStart.format("HH:mm"),
+                    end: slotEnd.format("HH:mm"),
+                    isAvailable: true
+                });
+            } else {
+                // Handle breaks within the hour
+                let lastEnd = slotStart;
+                
+                for (const breakTime of overlappingBreaks) {
+                    // Add slot before break
+                    if (breakTime.start > lastEnd) {
+                        hourSlots.push({
+                            start: lastEnd.format("HH:mm"),
+                            end: breakTime.start.format("HH:mm"),
+                            isAvailable: true
+                        });
+                    }
+                    lastEnd = moment.max(breakTime.end, lastEnd);
+                    
+                    // If we've reached the end of the hour, break out
+                    if (lastEnd >= slotEnd) break;
+                }
+                
+                // Add remaining time after last break
+                if (lastEnd < slotEnd) {
+                    hourSlots.push({
+                        start: lastEnd.format("HH:mm"),
+                        end: slotEnd.format("HH:mm"),
+                        isAvailable: true
+                    });
+                }
+            }
+            
+            current = slotEnd;
         }
 
         // Check booked appointments against each hour slot

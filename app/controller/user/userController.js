@@ -124,10 +124,10 @@ const verifyOtp = async (req, res) => {
 
     try {
         const response = await verifyOtpDB(mobileNumber, otp);
-        if(response){
+        if(response.status){
             return successResponse(res, 'Login successful', response);
         }
-        return errorResponse(res, 'Invalid OTP');
+        return errorResponse(res, response.message);
     } catch (error) {
         console.error('Error logging in:', error);
         return errorResponse(res, 'Error logging in');
