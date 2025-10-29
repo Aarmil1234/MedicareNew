@@ -6,6 +6,7 @@ router.post('/moveToIpd', ipdController.moveToIpd);
 
 // Get all IPD patients with pagination and filtering
 router.get('/patients', ipdController.getAllIpdPatients);
+router.get('/getAllIpd', ipdController.getAllIpd);
 
 // Get single IPD patient details
 router.get('/patients/:ipdId', ipdController.getIpdPatientById);

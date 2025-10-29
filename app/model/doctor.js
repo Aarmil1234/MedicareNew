@@ -4,7 +4,12 @@ const workingHourSchema = new mongoose.Schema({
     start: { type: String, required: false },      // e.g. "09:00"
     end: { type: String, required: false },        // e.g. "17:00"
     isAvailable: { type: Boolean, default: true }, // availability flag
-}, { _id: false }); // don’t create _id for subdocs
+    breaks: [{
+        start: { type: String, required: false },
+        end: { type: String, required: false },
+        name: { type: String, required: false }
+    }],
+}, { _id: false }); // donï¿½t create _id for subdocs
 
 const doctorSchema = new mongoose.Schema({
     name: { type: String, required: true },

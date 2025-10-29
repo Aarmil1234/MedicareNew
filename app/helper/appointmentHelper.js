@@ -4,33 +4,6 @@ const { sendWhatsAppMessages } = require("./whatsappService");
 const appointmentModel = require("../model/appointment");
 const mongoose = require("mongoose");
 
-// Generate slots for a given day & doctor (simple fixed range)
-function generateSlotsForDoctor(appointmentDate, avgSlotDuration, startTime = "13:00", endTime = "18:00") {
-    let slots = [];
-    let current = moment(`${moment(appointmentDate).format("YYYY-MM-DD")} ${startTime}`, "YYYY-MM-DD HH:mm");
-    let end = moment(`${moment(appointmentDate).format("YYYY-MM-DD")} ${endTime}`, "YYYY-MM-DD HH:mm");
-
-    while (current.isBefore(end)) {
-        slots.push(current.format("HH:mm"));
-        current.add(avgSlotDuration, "minutes");
-    }
-    return slots;
-}
-
-// Add minutes to a HH:mm time string
-function addMinutes(time, minutes) {
-    return moment(time, "HH:mm").add(minutes, "minutes").format("HH:mm");
-}
-
-// Check if a slot is within patient’s availability range
-function isWithinRange(slot, availableStartTime, availableEndTime) {
-    const slotMoment = moment(slot, "HH:mm");
-    const startMoment = moment(availableStartTime, "HH:mm");
-    const endMoment = moment(availableEndTime, "HH:mm");
-    return slotMoment.isSameOrAfter(startMoment) && slotMoment.isBefore(endMoment);
-}
-
-
 async function shiftAppointments(doctorId, appointmentDate, startTime, endTime, avgSlotDuration = 30) {
     // 1. Fetch all non-deleted appointments for that doctor & date
     let appointments = await appointmentdetailModel.find({
@@ -116,7 +89,7 @@ const getAppointmentDetails = async (appointmentId) => {
         const result = await appointmentModel.aggregate([
             // Match the appointment
             { $match: { _id: new mongoose.Types.ObjectId(appointmentId) } },
-            
+
             // Lookup appointment details
             {
                 $lookup: {
@@ -127,7 +100,7 @@ const getAppointmentDetails = async (appointmentId) => {
                 }
             },
             { $unwind: '$appointmentDetails' },
-            
+
             // Lookup user (patient) information
             {
                 $lookup: {
@@ -138,7 +111,7 @@ const getAppointmentDetails = async (appointmentId) => {
                 }
             },
             { $unwind: '$patient' },
-            
+
             // Lookup doctor information
             {
                 $lookup: {
@@ -149,7 +122,7 @@ const getAppointmentDetails = async (appointmentId) => {
                 }
             },
             { $unwind: '$doctor' },
-            
+
             // Lookup hospital information
             {
                 $lookup: {
@@ -160,7 +133,7 @@ const getAppointmentDetails = async (appointmentId) => {
                 }
             },
             { $unwind: '$hospital' },
-            
+
             // Project only necessary fields
             {
                 $project: {
@@ -173,7 +146,7 @@ const getAppointmentDetails = async (appointmentId) => {
                     chiefComplaints: '$appointmentDetails.chiefComplaints',
                     probableDiagnosis: '$appointmentDetails.probableDiagnosis',
                     doctorRemarks: '$appointmentDetails.doctorRemarks',
-                    
+
                     patient: {
                         _id: '$patient._id',
                         fullName: '$patient.fullName',
@@ -182,7 +155,7 @@ const getAppointmentDetails = async (appointmentId) => {
                         gender: '$patient.gender',
                         dob: '$patient.dob'
                     },
-                    
+
                     doctor: {
                         _id: '$doctor._id',
                         name: '$doctor.name',
@@ -190,7 +163,7 @@ const getAppointmentDetails = async (appointmentId) => {
                         mobileNumber: '$doctor.mobileNumber',
                         email: '$doctor.email'
                     },
-                    
+
                     hospital: {
                         _id: '$hospital._id',
                         name: '$hospital.name',
@@ -203,7 +176,7 @@ const getAppointmentDetails = async (appointmentId) => {
                 }
             }
         ]);
-        
+
         return result[0] || null;
     } catch (error) {
         console.error('Error fetching appointment details:', error);
@@ -211,4 +184,101 @@ const getAppointmentDetails = async (appointmentId) => {
     }
 };
 
-module.exports = { shiftAppointments, formatBookingTime, getAppointmentDetails };
+const setDoctorWorkingHour = async (workingHours) => {
+    // Default working hours template
+    const defaultWorkingHours = {
+        start: "09:00",
+        end: "17:00",
+        isAvailable: true,
+        breaks: [
+            {
+                start: "13:00",
+                end: "14:00",
+                name: "Lunch Break"
+            }
+        ]
+    };
+
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+    // If workingHours is not provided, initialize as empty object
+    if (!workingHours || Object.keys(workingHours).length === 0) {
+        workingHours = {};
+    }
+
+    // Check if workingHours has direct properties (start/end) instead of day-wise configuration
+    const hasGlobalHours = workingHours.start && workingHours.end;
+
+    if (hasGlobalHours) {
+        // Use the same working hours for all weekdays
+        const globalBreaks = Array.isArray(workingHours.breaks) ? workingHours.breaks : defaultWorkingHours.breaks;
+
+        days.forEach(day => {
+            workingHours[day] = {
+                start: workingHours.start,
+                end: workingHours.end,
+                isAvailable: workingHours.isAvailable !== undefined
+                    ? workingHours.isAvailable
+                    : (day !== 'saturday' && day !== 'sunday'),
+                breaks: [...globalBreaks] // Create a new array to avoid reference issues
+            };
+        });
+    } else {
+        // Handle day-wise configuration
+        days.forEach(day => {
+            if (!workingHours[day]) {
+                workingHours[day] = {
+                    ...defaultWorkingHours,
+                    isAvailable: (day !== 'saturday' && day !== 'sunday')
+                };
+            } else {
+                workingHours[day] = {
+                    start: workingHours[day].start || defaultWorkingHours.start,
+                    end: workingHours[day].end || defaultWorkingHours.end,
+                    isAvailable: workingHours[day].isAvailable !== undefined
+                        ? workingHours[day].isAvailable
+                        : (day !== 'saturday' && day !== 'sunday'),
+                    breaks: Array.isArray(workingHours[day].breaks)
+                        ? workingHours[day].breaks
+                        : [...defaultWorkingHours.breaks]
+                };
+            }
+        });
+    }
+    return workingHours;
+};
+
+const isWithinWorkingHours = (date, startTime, endTime, workingHours) => {
+    // Combine the date and time for accurate timezone handling
+    const appointmentDateStartTime = moment(`${date} ${startTime}`);
+    const appointmentDateEndTime = moment(`${date} ${endTime}`);
+    const startMoment = moment(`${date} ${workingHours.start}`);
+    const endMoment = moment(`${date} ${workingHours.end}`);
+    
+    // Check if time is within working hours
+    if (!appointmentDateStartTime.isBetween(startMoment, endMoment, null, '[]') || !appointmentDateEndTime.isBetween(startMoment, endMoment, null, '[)')) {
+        return false;
+    }
+    
+    // Check if time falls within any break
+    let isWithinAnyBreak = false;
+    if (workingHours.breaks && workingHours.breaks.length > 0) {
+        isWithinAnyBreak = workingHours.breaks.some(breakTime => {
+            const breakStart = moment(`${date} ${breakTime.start}`);
+            const breakEnd = moment(`${date} ${breakTime.end}`);
+            // Check if appointment starts or ends during break (exclusive end for break)
+            return appointmentDateStartTime.isBetween(breakStart, breakEnd, null, '[)') || 
+                   (appointmentDateEndTime.isAfter(breakStart) && appointmentDateEndTime.isBefore(breakEnd)) ||
+                   (appointmentDateStartTime.isSameOrBefore(breakStart) && appointmentDateEndTime.isAfter(breakEnd));
+        });
+    }
+    
+    if (isWithinAnyBreak) {
+        return false;
+    }
+    
+    return true;
+};
+
+
+module.exports = { shiftAppointments, formatBookingTime, getAppointmentDetails, setDoctorWorkingHour, isWithinWorkingHours };

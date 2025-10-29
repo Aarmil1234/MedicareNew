@@ -5,6 +5,22 @@ const IPD = require('../../model/ipd');
 const IpdDetail = require('../../model/ipdDetails');
 const mongoose = require('mongoose');
 
+const getAllIpd = async (req, res) => {
+    try {
+        const ipdPatients = await IPD.find({ delete: false })
+            .populate('doctorId', 'name specialization')
+            .populate('hospitalId', 'name address')
+            .populate('userId', 'name')
+            .populate('appointmentDetailId', 'chiefComplaints probableDiagnosis prescriptionList labInvestigations labReports doctorRemarks nextAppointmentDate status appointmentDate appointmentTime inTime outTime disease amount payableAmount')
+            .sort({ ipdAdmissionDate: -1 });
+
+        return successResponse(res, 'IPD patients retrieved successfully', ipdPatients);
+    } catch (error) {
+        console.error('Error getting IPD patients:', error);
+        return errorResponse(res, 'Error retrieving IPD patients: ' + error.message);
+    }
+}
+
 const moveToIpd = async (req, res) => {
     try {
         const { appointmentId } = req.body;
@@ -263,9 +279,8 @@ const dischargeIpdPatient = async (req, res) => {
     }
 };
 
-
-
 module.exports = {
+    getAllIpd,
     moveToIpd,
     addIpdInstructionByDoctor,
     getIpdDetails,
