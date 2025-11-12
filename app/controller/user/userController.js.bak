@@ -4,10 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const md5 = require('md5');
 const userModel = require('../../model/user');
-const { sendOTP, verifyOtpDB } = require('../../helper/otpService');
 const { successResponse, errorResponse, saveModel, selectdata, selectdatv2, updateModel } = require('../../helper/index');
-const doctorModel = require('../../model/doctor');
-const hospitalModel = require('../../model/hospital');
 
 // POST route to create or edit an user
 const addEditUser = async (req, res) => {
@@ -74,25 +71,36 @@ const addEditUser = async (req, res) => {
 
 // login 
 const login = async (req, res) => {
-    let mobileNumber = req.body.mobileNumber || "";
+    let loginField = req.body.loginField || "";
     let password = req.body.password || "";
 
     try {
         const user = await userModel.findOne({
-            $or: [{ mobileNumber: mobileNumber }],
+            $or: [{ email: loginField }, { mobileNumber: loginField }],
             delete: false,
-            // password: md5(password)
+            password: md5(password)
         });
         if (!user) {
             return errorResponse(res, 'Invalid credentials');
         }
 
-        const response = await sendOTP(user.mobileNumber);
-        console.log(response);
-        if (response.success) {
-            return successResponse(res, 'Login successful', user);
-        }
+        return successResponse(res, 'Login successful', user);
+    } catch (error) {
+        console.error('Error logging in:', error);
         return errorResponse(res, 'Error logging in');
+    }
+}
+
+const verifyOtp = async (req, res) => {
+    let mobileNumber = req.body.mobileNumber || "";
+    let otp = req.body.otp || "";
+
+    try {
+        const response = await verifyOtpDB(mobileNumber, otp);
+        if(response.status){
+            return successResponse(res, 'Login successful', response);
+        }
+        return errorResponse(res, response.message);
     } catch (error) {
         console.error('Error logging in:', error);
         return errorResponse(res, 'Error logging in');
@@ -119,69 +127,9 @@ const userProfile = async (req, res) => {
     }
 }
 
-// verify otp
-const verifyOtp = async (req, res) => {
-    let mobileNumber = req.body.mobileNumber || "";
-    let otp = req.body.otp || "";
-
-    try {
-        const response = await verifyOtpDB(mobileNumber, otp);
-        if (response.status) {
-            return successResponse(res, 'Login successful', response);
-        }
-        return errorResponse(res, response.message);
-    } catch (error) {
-        console.error('Error logging in:', error);
-        return errorResponse(res, 'Error logging in');
-    }
-}
-
-const searchDoctorsAndHospitalsByName = async (req, res) => {
-    try {
-        const { name = "", limit = 10, offset = 0 } = req.body;
-
-        if (!name.trim()) {
-            return errorResponse(res, "Name is required for search.");
-        }
-
-        const nameRegex = new RegExp(name.trim(), 'i'); // Case-insensitive partial match
-
-        // Search doctors by name
-        const doctors = await doctorModel.find({
-            delete: false,
-            name: nameRegex
-        })
-            .select('name email mobileNumber specializationId degreeId hospitalId appointmentCharge experience profile age gender')
-            .populate({ path: 'specializationId', select: 'name' })
-            .populate({ path: 'degreeId', select: 'name' })
-            .populate({ path: 'hospitalId', select: 'name email mobileNumber address' })
-            .skip(parseInt(offset))
-            .limit(parseInt(limit));
-
-        // Search hospitals by name
-        const hospitals = await hospitalModel.find({
-            delete: false,
-            name: nameRegex
-        })
-            .select('name email mobileNumber address city type specializationDescription profile')
-            .skip(parseInt(offset))
-            .limit(parseInt(limit));
-
-        return successResponse(res, 'Search results fetched successfully', {
-            doctors,
-            hospitals
-        });
-
-    } catch (error) {
-        console.error('Error in name search:', error);
-        return errorResponse(res, 'Error fetching search results');
-    }
-};
 
 module.exports = {
     addEditUser,
     login,
     userProfile,
-    verifyOtp,
-    searchDoctorsAndHospitalsByName
 }
