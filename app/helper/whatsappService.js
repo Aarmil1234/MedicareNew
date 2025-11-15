@@ -8,7 +8,7 @@ const VENDOR_ID = process.env.VENDOR_ID;
 const API_KEY = process.env.WHATSAPP_API_KEY;
 
 async function sendWhatsAppMessages(appointmentType, numbers, data) {
-  // Mapping appointmentType to campaignName & params
+  // Mapping appointmentType to campaignName & paramssss
   let campaignName = "";
   let templateParams = [];
 
