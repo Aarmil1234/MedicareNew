@@ -5,7 +5,7 @@ require("dotenv").config();
 
 const SHREESMS_URL = "https://web.shreesms.net/API/SendSMS.aspx";
 const SHREESMS_API_KEY = process.env.SHREESMS_API_KEY;
-const SHREESMS_SENDER_ID = process.env.SHREESMS_SENDER_ID;  // QUELES
+const SHREESMS_SENDER_ID = process.env.SHREESMS_SENDER_ID;  // QUEUELES
 const SHREESMS_ENTITY_ID = process.env.SHREESMS_ENTITY_ID;  // 1701175817292947842
 const SHREESMS_TEMPLATE_ID = process.env.SHREESMS_TEMPLATE_ID; // 1707175860554916635
 const otpExpiryMinutes = process.env.OTP_EXPIRY_MINUTES || 10;
@@ -28,7 +28,7 @@ async function sendOTP(mobileNumber) {
         `?APIkey=${SHREESMS_API_KEY}` +
         `&SenderID=${SHREESMS_SENDER_ID}` +
         `&SMSType=OTPTransaction` + // Service Implicit
-        `&Mobile=${parseInt(mobileNumber)}` +
+        `&Mobile=${mobileNumber}` +
         `&MsgText=${encodeURIComponent(message)}` +
         `&EntityID=${SHREESMS_ENTITY_ID}` +
         `&TemplateID=${SHREESMS_TEMPLATE_ID}`;
