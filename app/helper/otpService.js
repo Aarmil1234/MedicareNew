@@ -28,7 +28,7 @@ async function sendOTP(mobileNumber) {
         `?APIkey=${SHREESMS_API_KEY}` +
         `&SenderID=${SHREESMS_SENDER_ID}` +
         `&SMSType=OTPTransaction` + // Service Implicit
-        `&Mobile=${mobileNumber}` +
+        `&Mobile=${parseInt(mobileNumber)}` +
         `&MsgText=${encodeURIComponent(message)}` +
         `&EntityID=${SHREESMS_ENTITY_ID}` +
         `&TemplateID=${SHREESMS_TEMPLATE_ID}`;
