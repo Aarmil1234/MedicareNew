@@ -44,7 +44,7 @@ async function sendOTP(mobileNumber) {
             }
             return { success: true, otp, response: response.data };
         } else {
-            return { success: false, otp: null, error: response.data };
+            return { success: false, otp: null, error: response };
         }
     } catch (error) {
         console.error("Error:", error.message);

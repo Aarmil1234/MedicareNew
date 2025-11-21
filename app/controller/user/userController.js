@@ -92,10 +92,10 @@ const login = async (req, res) => {
         if (response.success) {
             return successResponse(res, 'Login successful', user);
         }
-        return errorResponse(res, 'Error logging in');
+        return errorResponse(res, response);
     } catch (error) {
         console.error('Error logging in:', error);
-        return errorResponse(res, 'Error logging in');
+        return errorResponse(res, error);
     }
 }
 
