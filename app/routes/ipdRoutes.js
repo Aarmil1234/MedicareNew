@@ -18,6 +18,7 @@ router.put('/patients/:ipdId', ipdController.updateIpdPatient);
 // Discharge IPD patient
 router.post('/patients/:ipdId/discharge', ipdController.dischargeIpdPatient);
 
+router.get('/getAllIpdInstructions/:ipdId', ipdController.getAllIpdInstructions);
 router.post('/addInstructions', ipdController.addIpdInstructionByDoctor);
 router.get('/getIpdDetails/:ipdId', ipdController.getIpdDetails);
 router.post('/dischargePatient', ipdController.dischargePatient);

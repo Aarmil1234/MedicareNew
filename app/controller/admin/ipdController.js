@@ -278,7 +278,18 @@ const dischargeIpdPatient = async (req, res) => {
     }
 };
 
+const getAllIpdInstructions = async (req, res) => {
+    try {
+        const ipdId = req.params.ipdId;
+        const ipdInstructions = await IpdDetail.find({ ipdId: ipdId, delete: false })
+            .sort({ create: -1 });
 
+        return successResponse(res, 'Ipd instructions retrieved successfully', ipdInstructions);
+    } catch (error) {
+        console.error('Error getting IPD instructions:', error);
+        return errorResponse(res, 'Error getting IPD instructions: ' + error.message);
+    }
+}
 
 module.exports = {
     moveToIpd,
@@ -289,5 +300,6 @@ module.exports = {
     getIpdPatientById,
     updateIpdPatient,
     getAllIpd,
-    dischargeIpdPatient
+    dischargeIpdPatient,
+    getAllIpdInstructions
 }
